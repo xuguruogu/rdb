@@ -10,55 +10,55 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/cupcake/rdb/crc64"
+	"github.com/xuguruogu/rdb/crc64"
 )
 
 // A Decoder must be implemented to parse a RDB file.
 type Decoder interface {
 	// StartRDB is called when parsing of a valid RDB file starts.
-	StartRDB()
+	StartRDB() error
 	// StartDatabase is called when database n starts.
 	// Once a database starts, another database will not start until EndDatabase is called.
-	StartDatabase(n int)
+	StartDatabase(n int) error
 	// AUX field
-	Aux(key, value []byte)
+	Aux(key, value []byte) error
 	// ResizeDB hint
-	ResizeDatabase(dbSize, expiresSize uint32)
+	ResizeDatabase(dbSize, expiresSize uint32) error
 	// Set is called once for each string key.
-	Set(key, value []byte, expiry int64)
+	Set(key, value []byte, expiry int64) error
 	// StartHash is called at the beginning of a hash.
 	// Hset will be called exactly length times before EndHash.
-	StartHash(key []byte, length, expiry int64)
+	StartHash(key []byte, length, expiry int64) error
 	// Hset is called once for each field=value pair in a hash.
-	Hset(key, field, value []byte)
+	Hset(key, field, value []byte) error
 	// EndHash is called when there are no more fields in a hash.
-	EndHash(key []byte)
+	EndHash(key []byte) error
 	// StartSet is called at the beginning of a set.
 	// Sadd will be called exactly cardinality times before EndSet.
-	StartSet(key []byte, cardinality, expiry int64)
+	StartSet(key []byte, cardinality, expiry int64) error
 	// Sadd is called once for each member of a set.
-	Sadd(key, member []byte)
+	Sadd(key, member []byte) error
 	// EndSet is called when there are no more fields in a set.
-	EndSet(key []byte)
+	EndSet(key []byte) error
 	// StartList is called at the beginning of a list.
 	// Rpush will be called exactly length times before EndList.
 	// If length of the list is not known, then length is -1
-	StartList(key []byte, length, expiry int64)
+	StartList(key []byte, length, expiry int64) error
 	// Rpush is called once for each value in a list.
-	Rpush(key, value []byte)
+	Rpush(key, value []byte) error
 	// EndList is called when there are no more values in a list.
-	EndList(key []byte)
+	EndList(key []byte) error
 	// StartZSet is called at the beginning of a sorted set.
 	// Zadd will be called exactly cardinality times before EndZSet.
-	StartZSet(key []byte, cardinality, expiry int64)
+	StartZSet(key []byte, cardinality, expiry int64) error
 	// Zadd is called once for each member of a sorted set.
-	Zadd(key []byte, score float64, member []byte)
+	Zadd(key []byte, score float64, member []byte) error
 	// EndZSet is called when there are no more members in a sorted set.
-	EndZSet(key []byte)
+	EndZSet(key []byte) error
 	// EndDatabase is called at the end of a database.
-	EndDatabase(n int)
+	EndDatabase(n int) error
 	// EndRDB is called when parsing of the RDB file is complete.
-	EndRDB()
+	EndRDB() error
 }
 
 // Decode parses a RDB file from r and calls the decode hooks on d.
@@ -71,20 +71,29 @@ func Decode(r io.Reader, d Decoder) error {
 // database, key or expiry, so they must be included in the function call (but
 // can be zero values).
 func DecodeDump(dump []byte, db int, key []byte, expiry int64, d Decoder) error {
-	err := verifyDump(dump)
-	if err != nil {
+	if err := verifyDump(dump); err != nil {
 		return err
 	}
 
 	decoder := &decode{d, make([]byte, 8), bytes.NewReader(dump[1:])}
-	decoder.event.StartRDB()
-	decoder.event.StartDatabase(db)
+	if err := decoder.event.StartRDB(); err != nil {
+		return err
+	}
+	if err := decoder.event.StartDatabase(db); err != nil {
+		return err
+	}
 
-	err = decoder.readObject(key, ValueType(dump[0]), expiry)
+	if err := decoder.readObject(key, ValueType(dump[0]), expiry); err != nil {
+		return err
+	}
 
-	decoder.event.EndDatabase(db)
-	decoder.event.EndRDB()
-	return err
+	if err := decoder.event.EndDatabase(db); err != nil {
+		return err
+	}
+	if err := decoder.event.EndRDB(); err != nil {
+		return err
+	}
+	return nil
 }
 
 type byteReader interface {
@@ -151,7 +160,9 @@ func (d *decode) decode() error {
 		return err
 	}
 
-	d.event.StartRDB()
+	if err := d.event.StartRDB(); err != nil {
+		return err
+	}
 
 	var db uint32
 	var expiry int64
@@ -171,7 +182,9 @@ func (d *decode) decode() error {
 			if err != nil {
 				return err
 			}
-			d.event.Aux(auxKey, auxVal)
+			if err := d.event.Aux(auxKey, auxVal); err != nil {
+				return err
+			}
 		case rdbFlagResizeDB:
 			dbSize, _, err := d.readLength()
 			if err != nil {
@@ -181,7 +194,9 @@ func (d *decode) decode() error {
 			if err != nil {
 				return err
 			}
-			d.event.ResizeDatabase(dbSize, expiresSize)
+			if err := d.event.ResizeDatabase(dbSize, expiresSize); err != nil {
+				return err
+			}
 		case rdbFlagExpiryMS:
 			_, err := io.ReadFull(d.r, d.intBuf)
 			if err != nil {
@@ -196,16 +211,24 @@ func (d *decode) decode() error {
 			expiry = int64(binary.LittleEndian.Uint32(d.intBuf)) * 1000
 		case rdbFlagSelectDB:
 			if !firstDB {
-				d.event.EndDatabase(int(db))
+				if err := d.event.EndDatabase(int(db)); err != nil {
+					return err
+				}
 			}
 			db, _, err = d.readLength()
 			if err != nil {
 				return err
 			}
-			d.event.StartDatabase(int(db))
+			if err := d.event.StartDatabase(int(db)); err != nil {
+				return err
+			}
 		case rdbFlagEOF:
-			d.event.EndDatabase(int(db))
-			d.event.EndRDB()
+			if err := d.event.EndDatabase(int(db)); err != nil {
+				return err
+			}
+			if err := d.event.EndRDB(); err != nil {
+				return err
+			}
 			return nil
 		default:
 			key, err := d.readString()
@@ -230,51 +253,71 @@ func (d *decode) readObject(key []byte, typ ValueType, expiry int64) error {
 		if err != nil {
 			return err
 		}
-		d.event.Set(key, value, expiry)
+		if err := d.event.Set(key, value, expiry); err != nil {
+			return err
+		}
 	case TypeList:
 		length, _, err := d.readLength()
 		if err != nil {
 			return err
 		}
-		d.event.StartList(key, int64(length), expiry)
+		if err := d.event.StartList(key, int64(length), expiry); err != nil {
+			return err
+		}
 		for i := uint32(0); i < length; i++ {
 			value, err := d.readString()
 			if err != nil {
 				return err
 			}
-			d.event.Rpush(key, value)
+			if err := d.event.Rpush(key, value); err != nil {
+				return err
+			}
 		}
-		d.event.EndList(key)
+		if err := d.event.EndList(key); err != nil {
+			return err
+		}
 	case TypeListQuicklist:
 		length, _, err := d.readLength()
 		if err != nil {
 			return err
 		}
-		d.event.StartList(key, int64(-1), expiry)
+		if err := d.event.StartList(key, int64(-1), expiry); err != nil {
+			return err
+		}
 		for i := uint32(0); i < length; i++ {
 			d.readZiplist(key, 0, false)
 		}
-		d.event.EndList(key)
+		if err := d.event.EndList(key); err != nil {
+			return err
+		}
 	case TypeSet:
 		cardinality, _, err := d.readLength()
 		if err != nil {
 			return err
 		}
-		d.event.StartSet(key, int64(cardinality), expiry)
+		if err := d.event.StartSet(key, int64(cardinality), expiry); err != nil {
+			return err
+		}
 		for i := uint32(0); i < cardinality; i++ {
 			member, err := d.readString()
 			if err != nil {
 				return err
 			}
-			d.event.Sadd(key, member)
+			if err := d.event.Sadd(key, member); err != nil {
+				return err
+			}
 		}
-		d.event.EndSet(key)
+		if err := d.event.EndSet(key); err != nil {
+			return err
+		}
 	case TypeZSet:
 		cardinality, _, err := d.readLength()
 		if err != nil {
 			return err
 		}
-		d.event.StartZSet(key, int64(cardinality), expiry)
+		if err := d.event.StartZSet(key, int64(cardinality), expiry); err != nil {
+			return err
+		}
 		for i := uint32(0); i < cardinality; i++ {
 			member, err := d.readString()
 			if err != nil {
@@ -284,15 +327,21 @@ func (d *decode) readObject(key []byte, typ ValueType, expiry int64) error {
 			if err != nil {
 				return err
 			}
-			d.event.Zadd(key, score, member)
+			if err := d.event.Zadd(key, score, member); err != nil {
+				return err
+			}
 		}
-		d.event.EndZSet(key)
+		if err := d.event.EndZSet(key); err != nil {
+			return err
+		}
 	case TypeHash:
 		length, _, err := d.readLength()
 		if err != nil {
 			return err
 		}
-		d.event.StartHash(key, int64(length), expiry)
+		if err := d.event.StartHash(key, int64(length), expiry); err != nil {
+			return err
+		}
 		for i := uint32(0); i < length; i++ {
 			field, err := d.readString()
 			if err != nil {
@@ -302,9 +351,13 @@ func (d *decode) readObject(key []byte, typ ValueType, expiry int64) error {
 			if err != nil {
 				return err
 			}
-			d.event.Hset(key, field, value)
+			if err := d.event.Hset(key, field, value); err != nil {
+				return err
+			}
 		}
-		d.event.EndHash(key)
+		if err := d.event.EndHash(key); err != nil {
+			return err
+		}
 	case TypeHashZipmap:
 		return d.readZipmap(key, expiry)
 	case TypeListZiplist:
@@ -341,7 +394,9 @@ func (d *decode) readZipmap(key []byte, expiry int64) error {
 	} else {
 		length = int(lenByte)
 	}
-	d.event.StartHash(key, int64(length), expiry)
+	if err := d.event.StartHash(key, int64(length), expiry); err != nil {
+		return err
+	}
 	for i := 0; i < length; i++ {
 		field, err := readZipmapItem(buf, false)
 		if err != nil {
@@ -351,9 +406,13 @@ func (d *decode) readZipmap(key []byte, expiry int64) error {
 		if err != nil {
 			return err
 		}
-		d.event.Hset(key, field, value)
+		if err := d.event.Hset(key, field, value); err != nil {
+			return err
+		}
 	}
-	d.event.EndHash(key)
+	if err := d.event.EndHash(key); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -428,17 +487,23 @@ func (d *decode) readZiplist(key []byte, expiry int64, addListEvents bool) error
 		return err
 	}
 	if addListEvents {
-		d.event.StartList(key, length, expiry)
+		if err := d.event.StartList(key, length, expiry); err != nil {
+			return err
+		}
 	}
 	for i := int64(0); i < length; i++ {
 		entry, err := readZiplistEntry(buf)
 		if err != nil {
 			return err
 		}
-		d.event.Rpush(key, entry)
+		if err := d.event.Rpush(key, entry); err != nil {
+			return err
+		}
 	}
 	if addListEvents {
-		d.event.EndList(key)
+		if err := d.event.EndList(key); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -454,7 +519,9 @@ func (d *decode) readZiplistZset(key []byte, expiry int64) error {
 		return err
 	}
 	cardinality /= 2
-	d.event.StartZSet(key, cardinality, expiry)
+	if err := d.event.StartZSet(key, cardinality, expiry); err != nil {
+		return err
+	}
 	for i := int64(0); i < cardinality; i++ {
 		member, err := readZiplistEntry(buf)
 		if err != nil {
@@ -468,9 +535,13 @@ func (d *decode) readZiplistZset(key []byte, expiry int64) error {
 		if err != nil {
 			return err
 		}
-		d.event.Zadd(key, score, member)
+		if err := d.event.Zadd(key, score, member); err != nil {
+			return err
+		}
 	}
-	d.event.EndZSet(key)
+	if err := d.event.EndZSet(key); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -485,7 +556,9 @@ func (d *decode) readZiplistHash(key []byte, expiry int64) error {
 		return err
 	}
 	length /= 2
-	d.event.StartHash(key, length, expiry)
+	if err := d.event.StartHash(key, length, expiry); err != nil {
+		return err
+	}
 	for i := int64(0); i < length; i++ {
 		field, err := readZiplistEntry(buf)
 		if err != nil {
@@ -495,9 +568,13 @@ func (d *decode) readZiplistHash(key []byte, expiry int64) error {
 		if err != nil {
 			return err
 		}
-		d.event.Hset(key, field, value)
+		if err := d.event.Hset(key, field, value); err != nil {
+			return err
+		}
 	}
-	d.event.EndHash(key)
+	if err := d.event.EndHash(key); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -595,7 +672,9 @@ func (d *decode) readIntset(key []byte, expiry int64) error {
 	}
 	cardinality := binary.LittleEndian.Uint32(lenBytes)
 
-	d.event.StartSet(key, int64(cardinality), expiry)
+	if err := d.event.StartSet(key, int64(cardinality), expiry); err != nil {
+		return err
+	}
 	for i := uint32(0); i < cardinality; i++ {
 		intBytes, err := buf.Slice(int(intSize))
 		if err != nil {
@@ -610,9 +689,13 @@ func (d *decode) readIntset(key []byte, expiry int64) error {
 		case 8:
 			intString = strconv.FormatInt(int64(int64(binary.LittleEndian.Uint64(intBytes))), 10)
 		}
-		d.event.Sadd(key, []byte(intString))
+		if err := d.event.Sadd(key, []byte(intString)); err != nil {
+			return err
+		}
 	}
-	d.event.EndSet(key)
+	if err := d.event.EndSet(key); err != nil {
+		return err
+	}
 	return nil
 }
 

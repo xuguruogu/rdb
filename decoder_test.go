@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cupcake/rdb"
+	"github.com/xuguruogu/rdb"
 	. "gopkg.in/check.v1"
 )
 
@@ -233,7 +233,7 @@ func (r *FakeRedis) db() map[string]interface{} {
 	return r.dbs[r.cdb]
 }
 
-func (r *FakeRedis) StartRDB() {
+func (r *FakeRedis) StartRDB() error {
 	r.started++
 	r.dbs = make(map[int]map[string]interface{})
 	r.expiries = make(map[int]map[string]int64)
@@ -241,55 +241,64 @@ func (r *FakeRedis) StartRDB() {
 	r.aux = make(map[string]string)
 	r.dbSize = make(map[int]uint32)
 	r.expiresSize = make(map[int]uint32)
+	return nil
 }
 
-func (r *FakeRedis) StartDatabase(n int) {
+func (r *FakeRedis) StartDatabase(n int) error {
 	r.dbs[n] = make(map[string]interface{})
 	r.expiries[n] = make(map[string]int64)
 	r.lengths[n] = make(map[string]int)
 	r.cdb = n
+	return nil
 }
 
-func (r *FakeRedis) Set(key, value []byte, expiry int64) {
+func (r *FakeRedis) Set(key, value []byte, expiry int64) error {
 	r.setExpiry(key, expiry)
 	r.db()[string(key)] = string(value)
+	return nil
 }
 
-func (r *FakeRedis) StartHash(key []byte, length, expiry int64) {
+func (r *FakeRedis) StartHash(key []byte, length, expiry int64) error {
 	r.setExpiry(key, expiry)
 	r.setLength(key, length)
 	r.db()[string(key)] = make(map[string]string)
+	return nil
 }
 
-func (r *FakeRedis) Hset(key, field, value []byte) {
+func (r *FakeRedis) Hset(key, field, value []byte) error {
 	r.db()[string(key)].(map[string]string)[string(field)] = string(value)
+	return nil
 }
 
-func (r *FakeRedis) EndHash(key []byte) {
+func (r *FakeRedis) EndHash(key []byte) error {
 	actual := len(r.db()[string(key)].(map[string]string))
 	if actual != r.getLength(key) {
 		panic(fmt.Sprintf("wrong length for key %s got %d, expected %d", key, actual, r.getLength(key)))
 	}
+	return nil
 }
 
-func (r *FakeRedis) StartSet(key []byte, cardinality, expiry int64) {
+func (r *FakeRedis) StartSet(key []byte, cardinality, expiry int64) error {
 	r.setExpiry(key, expiry)
 	r.setLength(key, cardinality)
 	r.db()[string(key)] = make([]string, 0, cardinality)
+	return nil
 }
 
-func (r *FakeRedis) Sadd(key, member []byte) {
+func (r *FakeRedis) Sadd(key, member []byte) error {
 	r.db()[string(key)] = append(r.db()[string(key)].([]string), string(member))
+	return nil
 }
 
-func (r *FakeRedis) EndSet(key []byte) {
+func (r *FakeRedis) EndSet(key []byte) error {
 	actual := len(r.db()[string(key)].([]string))
 	if actual != r.getLength(key) {
 		panic(fmt.Sprintf("wrong length for key %s got %d, expected %d", key, actual, r.getLength(key)))
 	}
+	return nil
 }
 
-func (r *FakeRedis) StartList(key []byte, length, expiry int64) {
+func (r *FakeRedis) StartList(key []byte, length, expiry int64) error {
 	r.setExpiry(key, expiry)
 	r.setLength(key, length)
 	cap := length
@@ -297,51 +306,61 @@ func (r *FakeRedis) StartList(key []byte, length, expiry int64) {
 		cap = 1
 	}
 	r.db()[string(key)] = make([]string, 0, cap)
+	return nil
 }
 
-func (r *FakeRedis) Rpush(key, value []byte) {
+func (r *FakeRedis) Rpush(key, value []byte) error {
 	r.db()[string(key)] = append(r.db()[string(key)].([]string), string(value))
+	return nil
 }
 
-func (r *FakeRedis) EndList(key []byte) {
+func (r *FakeRedis) EndList(key []byte) error {
 	actual := len(r.db()[string(key)].([]string))
 	if actual != r.getLength(key) && r.getLength(key) >= 0 {
 		panic(fmt.Sprintf("wrong length for key %s got %d, expected %d", key, actual, r.getLength(key)))
 	}
+	return nil
 }
 
-func (r *FakeRedis) StartZSet(key []byte, cardinality, expiry int64) {
+func (r *FakeRedis) StartZSet(key []byte, cardinality, expiry int64) error {
 	r.setExpiry(key, expiry)
 	r.setLength(key, cardinality)
 	r.db()[string(key)] = make(map[string]float64)
+	return nil
 }
 
-func (r *FakeRedis) Zadd(key []byte, score float64, member []byte) {
+func (r *FakeRedis) Zadd(key []byte, score float64, member []byte) error {
 	r.db()[string(key)].(map[string]float64)[string(member)] = score
+	return nil
 }
 
-func (r *FakeRedis) EndZSet(key []byte) {
+func (r *FakeRedis) EndZSet(key []byte) error {
 	actual := len(r.db()[string(key)].(map[string]float64))
 	if actual != r.getLength(key) {
 		panic(fmt.Sprintf("wrong length for key %s got %d, expected %d", key, actual, r.getLength(key)))
 	}
+	return nil
 }
 
-func (r *FakeRedis) EndDatabase(n int) {
+func (r *FakeRedis) EndDatabase(n int) error {
 	if n != r.cdb {
 		panic(fmt.Sprintf("database end called with %d, expected %d", n, r.cdb))
 	}
+	return nil
 }
 
-func (r *FakeRedis) EndRDB() {
+func (r *FakeRedis) EndRDB() error {
 	r.ended++
+	return nil
 }
 
-func (r *FakeRedis) Aux(key, value []byte) {
+func (r *FakeRedis) Aux(key, value []byte) error {
 	r.aux[string(key)] = string(value)
+	return nil
 }
 
-func (r *FakeRedis) ResizeDatabase(dbSize, expiresSize uint32) {
+func (r *FakeRedis) ResizeDatabase(dbSize, expiresSize uint32) error {
 	r.dbSize[r.cdb] = dbSize
 	r.expiresSize[r.cdb] = expiresSize
+	return nil
 }
