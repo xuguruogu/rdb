@@ -326,7 +326,7 @@ func (d *decode) readObject(key []byte, typ ValueType, expiry int64) error {
 			}
 			score, err := d.readFloat64()
 
-			var float64 score
+			var score float64
 			if typ == TypeZSet2 {
 				score, err = d.readBinaryFloat64()
 			} else {
@@ -840,11 +840,11 @@ func (d *decode) readFloat64() (float64, error) {
 }
 
 func (d *decode) readBinaryFloat64() (float64, error) {
-       _, err := io.ReadFull(d.r, d.intBuf[0:8])
-       if err != nil {
-               return 0, err
-       }
-       return math.Float64frombits(d.intBuf), nil
+	_, err := io.ReadFull(d.r, d.intBuf[0:8])
+	if err != nil {
+		return 0, err
+	}
+	return math.Float64frombits(binary.LittleEndian.Uint64(d.intBuf)), nil
 }
 
 func (d *decode) readLength() (uint32, bool, error) {
