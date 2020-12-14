@@ -324,7 +324,6 @@ func (d *decode) readObject(key []byte, typ ValueType, expiry int64) error {
 			if err != nil {
 				return err
 			}
-			score, err := d.readFloat64()
 
 			var score float64
 			if typ == TypeZSet2 {
